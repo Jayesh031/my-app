@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { temporal } from 'zundo';
 
+// 1. EXPORT INVENTORY (This was missing!)
 export const INVENTORY = {
   frames: [
     { id: 'bottom_plate', label: 'Bottom Plate', type: 'bottom_plate' },
@@ -14,33 +15,32 @@ export const INVENTORY = {
   electronics: []
 };
 
+// 2. MAIN STORE
 export const useDroneStore = create(
   temporal(
     (set, get) => ({
       parts: [],
       activePartId: null,
       isCarrying: false,
+      draggedPartType: null, // Track what we are dragging
 
-      spawnPart: (partType) => {
+      // ACTIONS
+      setDraggedPartType: (type) => set({ draggedPartType: type }),
+
+      spawnPart: (partType, position = [0, 0.5, 0]) => { 
         const uniqueId = `${partType}_${Date.now()}`;
-        
-        // 1. We do NOT pause here. We want the "Spawn" to be in history.
-        // The user spawns it, and it immediately starts following (carrying).
         
         set((state) => ({
           parts: [...state.parts, {
             id: uniqueId,
             type: partType,
-            position: [-2, 0.5, -2], 
+            position: position, // Uses the Drop position
             rotation: [0, 0, 0],
             isLocked: false,
           }],
-          activePartId: null,
-          isCarrying: false 
+          activePartId: uniqueId,
+          isCarrying: false // Drop immediately (for drag-and-drop)
         }));
-
-        // 2. NOW we pause, because the very next thing the user does is drag it.
-        useDroneStore.temporal.getState().pause();
       },
 
       selectPart: (id) => {
@@ -49,19 +49,15 @@ export const useDroneStore = create(
           set({ activePartId: id });
         }
       },
-
+      
       startCarrying: () => {
-        // Pause history so we don't save 1000 movement steps
         useDroneStore.temporal.getState().pause();
         set({ isCarrying: true });
       },
 
       stopCarrying: () => {
-        // 1. Resume history tracking
-        useDroneStore.temporal.getState().resume();
-        
-        // 2. Update state. Since history is active, this saves the FINAL position.
-        set({ isCarrying: false });
+         useDroneStore.temporal.getState().resume();
+         set({ isCarrying: false });
       },
 
       updatePartPosition: (id, pos, rot) => set((state) => ({
@@ -69,7 +65,7 @@ export const useDroneStore = create(
           p.id === id ? { ...p, position: pos, rotation: rot } : p
         )
       })),
-      
+
       setPartHeight: (id, height) => set((state) => {
         const part = state.parts.find(p => p.id === id);
         if (!part) return {};
@@ -92,7 +88,6 @@ export const useDroneStore = create(
       },
 
       lockActivePart: () => {
-        // Locking is just a state change, history is already running so it will be saved.
         set((state) => ({
           parts: state.parts.map(p => 
             p.id === state.activePartId ? { ...p, isLocked: true } : p
@@ -100,6 +95,8 @@ export const useDroneStore = create(
           activePartId: null,
           isCarrying: false
         }));
+        const temporal = useDroneStore.temporal.getState();
+        temporal.resume();
       },
 
       deletePart: (id) => set((state) => ({

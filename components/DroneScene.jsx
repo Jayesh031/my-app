@@ -1,11 +1,12 @@
-import React, { Suspense, useMemo } from 'react';
-import { Canvas } from '@react-three/fiber';
+import React, { Suspense, useMemo, useRef, useState, useEffect } from 'react';
+import { Canvas, useThree } from '@react-three/fiber';
 import { useGLTF, OrbitControls, Grid } from '@react-three/drei';
 import { useControls } from 'leva';
 import { useDroneStore } from './store';
 import * as THREE from 'three';
 
-function Model({ type, ...props }) {
+// 1. REUSABLE MODEL COMPONENT (Used for both Real and Ghost)
+function Model({ type, isGhost, ...props }) {
   const { globalScale } = useControls({ 
     globalScale: { value: 0.1, min: 0.01, max: 2, step: 0.01 } 
   });
@@ -21,17 +22,33 @@ function Model({ type, ...props }) {
   const gltf = useGLTF(fileMap[type]);
   const scene = useMemo(() => gltf.scene.clone(), [gltf.scene]);
 
+  // Clone material for ghost effect so we don't mess up the original
+  useMemo(() => {
+    if (isGhost) {
+      scene.traverse((child) => {
+        if (child.isMesh) {
+          child.material = child.material.clone();
+          child.material.transparent = true;
+          child.material.opacity = 0.5;
+          child.material.color.set('#4da6ff'); // Blueish tint
+          child.material.emissive.set('#4da6ff');
+          child.material.emissiveIntensity = 0.2;
+        }
+      });
+    }
+  }, [scene, isGhost]);
+
   return (
     <group 
       position={props.position} 
       rotation={props.rotation}
       scale={globalScale}
-      onClick={(e) => { e.stopPropagation(); props.onSelect(); }}
-      onDoubleClick={(e) => { e.stopPropagation(); props.onPickup(); }}
+      onClick={(e) => { if(!isGhost) { e.stopPropagation(); props.onSelect(); } }}
+      onDoubleClick={(e) => { if(!isGhost) { e.stopPropagation(); props.onPickup(); } }}
     >
       <primitive object={scene} />
       
-      {props.isActive && (
+      {props.isActive && !isGhost && (
         <group>
           <mesh position={[0, -props.position[1] + 0.02, 0]}>
              <ringGeometry args={[0.8, 0.9, 32]} />
@@ -47,6 +64,83 @@ function Model({ type, ...props }) {
   );
 }
 
+// 2. DRAG MANAGER (Handles the Ghost Logic)
+function DragManager() {
+  const { camera, gl, scene } = useThree();
+  const draggedPartType = useDroneStore((s) => s.draggedPartType);
+  const spawnPart = useDroneStore((s) => s.spawnPart);
+  
+  const ghostRef = useRef();
+  const raycaster = useMemo(() => new THREE.Raycaster(), []);
+  const plane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), []);
+
+  useEffect(() => {
+    const canvas = gl.domElement;
+
+    const handleDragOver = (e) => {
+      e.preventDefault(); 
+      
+      if (!draggedPartType || !ghostRef.current) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera({ x, y }, camera);
+      
+      const target = new THREE.Vector3();
+      raycaster.ray.intersectPlane(plane, target);
+      
+      if (target) {
+        // 1. Update Position
+        ghostRef.current.position.set(target.x, 0, target.z);
+        
+        // 2. FIX: Make visible ONLY when we have a valid target
+        if (!ghostRef.current.visible) ghostRef.current.visible = true;
+      }
+    };
+
+    // NEW: Hide ghost when mouse leaves the canvas
+    const handleDragLeave = (e) => {
+      e.preventDefault();
+      if (ghostRef.current) {
+        ghostRef.current.visible = false;
+      }
+    };
+
+    const handleDrop = (e) => {
+      e.preventDefault();
+      if (draggedPartType && ghostRef.current && ghostRef.current.visible) { // Only drop if visible
+        const { x, z } = ghostRef.current.position;
+        spawnPart(draggedPartType, [x, 0, z]);
+      }
+      // Reset visibility for next time
+      if (ghostRef.current) ghostRef.current.visible = false;
+    };
+
+    canvas.addEventListener('dragover', handleDragOver);
+    canvas.addEventListener('dragleave', handleDragLeave); // Add listener
+    canvas.addEventListener('drop', handleDrop);
+
+    return () => {
+      canvas.removeEventListener('dragover', handleDragOver);
+      canvas.removeEventListener('dragleave', handleDragLeave); // Remove listener
+      canvas.removeEventListener('drop', handleDrop);
+    };
+  }, [camera, gl.domElement, draggedPartType, plane, raycaster, spawnPart]);
+
+  if (draggedPartType) {
+    return (
+      <group ref={ghostRef} visible={false}> {/* Default to INVISIBLE */}
+        <Model type={draggedPartType} isGhost={true} position={[0,0,0]} rotation={[0,0,0]} />
+      </group>
+    );
+  }
+
+  return null;
+}
+
+// 3. MAIN SCENE
 export default function DroneScene() {
   const parts = useDroneStore((state) => state.parts);
   const activePartId = useDroneStore((state) => state.activePartId);
@@ -71,16 +165,10 @@ export default function DroneScene() {
     }
   };
 
-  // NEW: Right-Click Handler
   const handleRightClick = (e) => {
-    // Prevent the browser menu from opening
     e.nativeEvent.preventDefault(); 
-    if (isCarrying) {
-      stopCarrying(); // This drops the part
-    } else {
-        // Optional: If not carrying, right click could deselect
-        useDroneStore.getState().selectPart(null);
-    }
+    if (isCarrying) stopCarrying();
+    else useDroneStore.getState().selectPart(null);
   };
 
   return (
@@ -89,15 +177,15 @@ export default function DroneScene() {
         <ambientLight intensity={1.5} />
         <directionalLight position={[10, 10, 5]} intensity={2} />
         
-        {/* Invisible Floor Plane with Right Click Listener */}
+        {/* Invisible Floor for Movement */}
         <mesh 
           rotation={[-Math.PI / 2, 0, 0]} 
           position={[0, -0.01, 0]} 
           scale={100} 
           visible={false} 
           onPointerMove={handlePlaneMove}
-          onContextMenu={handleRightClick} // <--- Right Click Added Here
-          onClick={() => { if(isCarrying) stopCarrying(); }} // Left click still drops too
+          onContextMenu={handleRightClick}
+          onClick={() => { if(isCarrying) stopCarrying(); }}
         >
           <planeGeometry />
         </mesh>
@@ -105,6 +193,7 @@ export default function DroneScene() {
         <Grid infiniteGrid fadeDistance={25} sectionColor="#4d4d4d" cellColor="#222" cellSize={0.5} sectionSize={2.5} />
 
         <Suspense fallback={null}>
+          {/* Render All Real Parts */}
           {parts.map((part) => (
             <Model 
               key={part.id}
@@ -117,6 +206,9 @@ export default function DroneScene() {
               onPickup={() => { selectPart(part.id); startCarrying(); }}
             />
           ))}
+          
+          {/* NEW: Render Drag Manager */}
+          <DragManager />
         </Suspense>
         
         <OrbitControls makeDefault />
