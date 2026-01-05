@@ -1,103 +1,116 @@
 import { create } from 'zustand';
+import { temporal } from 'zundo';
 
-export const useDroneStore = create((set, get) => ({
-  parts: [], 
-  currentStep: 0,
-  activePartId: null, 
-  isCarrying: false,
-
-  buildSequence: [
-    { id: 'bottom_plate', type: 'bottom_plate', label: 'Bottom Plate', defaultHeight: 0 },
-    { id: 'arm_fr', type: 'arm', label: 'Front Right Arm', defaultHeight: 0.15 },
-    { id: 'arm_fl', type: 'arm', label: 'Front Left Arm', defaultHeight: 0.15 },
-    { id: 'arm_br', type: 'arm', label: 'Back Right Arm', defaultHeight: 0.15 },
-    { id: 'arm_bl', type: 'arm', label: 'Back Left Arm', defaultHeight: 0.15 },
-    { id: 'top_plate', type: 'top_plate', label: 'Top Plate', defaultHeight: 0.30 },
-    { id: 'motor_fr', type: 'motor', label: 'Motor FR', defaultHeight: 0.35 },
-    { id: 'motor_fl', type: 'motor', label: 'Motor FL', defaultHeight: 0.35 },
-    { id: 'motor_br', type: 'motor', label: 'Motor BR', defaultHeight: 0.35 },
-    { id: 'motor_bl', type: 'motor', label: 'Motor BL', defaultHeight: 0.35 },
+export const INVENTORY = {
+  frames: [
+    { id: 'bottom_plate', label: 'Bottom Plate', type: 'bottom_plate' },
+    { id: 'top_plate', label: 'Top Plate', type: 'top_plate' },
+    { id: 'arm', label: 'Standard Arm', type: 'arm' },
   ],
+  propulsion: [
+    { id: 'motor', label: 'Brushless Motor', type: 'motor' },
+    { id: 'propellor', label: '5" Propellor', type: 'propellor' },
+  ],
+  electronics: []
+};
 
-  spawnPart: () => {
-    const { parts, currentStep, buildSequence } = get();
-    if (currentStep >= buildSequence.length) return;
-
-    const nextPartData = buildSequence[currentStep];
-    if (parts.find(p => p.id === nextPartData.id)) return;
-
-    const newPart = {
-      id: nextPartData.id,
-      type: nextPartData.type,
-      position: [0, nextPartData.defaultHeight, 0], 
-      rotation: [0, 0, 0],
-      isLocked: false
-    };
-
-    set({ 
-      parts: [...parts, newPart], 
-      activePartId: newPart.id,
-      isCarrying: false 
-    });
-  },
-
-  selectPart: (id) => {
-    const part = get().parts.find(p => p.id === id);
-    if (part && !part.isLocked) {
-      set({ activePartId: id, isCarrying: false });
-    }
-  },
-
-  startCarrying: () => set({ isCarrying: true }),
-  stopCarrying: () => set({ isCarrying: false }),
-
-  // Standard Update (Full Position)
-  updatePart: (id, pos, rot) => set((state) => ({
-    parts: state.parts.map(p => 
-      p.id === id ? { ...p, position: pos, rotation: rot } : p
-    )
-  })),
-
-  // Specific Action: Lift Only (Preserve X/Z)
-  setPartHeight: (id, height) => set((state) => {
-    const part = state.parts.find(p => p.id === id);
-    if (!part) return {};
-    return {
-      parts: state.parts.map(p => 
-        p.id === id ? { ...p, position: [part.position[0], height, part.position[2]] } : p
-      )
-    };
-  }),
-
-  // Specific Action: Rotate Only
-  rotateActivePart: () => {
-    const { activePartId, parts } = get();
-    if (!activePartId) return;
-    
-    const part = parts.find(p => p.id === activePartId);
-    const currentY = part.rotation[1];
-    set((state) => ({
-      parts: state.parts.map(p => 
-        p.id === activePartId ? { ...p, rotation: [0, currentY + (Math.PI / 4), 0] } : p
-      )
-    }));
-  },
-
-  lockPart: () => {
-    const { activePartId, parts, currentStep } = get();
-    if (!activePartId) return;
-
-    const updatedParts = parts.map(p => 
-      p.id === activePartId ? { ...p, isLocked: true } : p
-    );
-
-    set({
-      parts: updatedParts,
-      activePartId: null, 
+export const useDroneStore = create(
+  temporal(
+    (set, get) => ({
+      parts: [],
+      activePartId: null,
       isCarrying: false,
-      currentStep: currentStep + 1 
-    });
-  },
 
-  reset: () => set({ parts: [], currentStep: 0, activePartId: null, isCarrying: false })
-}));
+      spawnPart: (partType) => {
+        const uniqueId = `${partType}_${Date.now()}`;
+        
+        // 1. We do NOT pause here. We want the "Spawn" to be in history.
+        // The user spawns it, and it immediately starts following (carrying).
+        
+        set((state) => ({
+          parts: [...state.parts, {
+            id: uniqueId,
+            type: partType,
+            position: [-2, 0.5, -2], 
+            rotation: [0, 0, 0],
+            isLocked: false,
+          }],
+          activePartId: null,
+          isCarrying: false 
+        }));
+
+        // 2. NOW we pause, because the very next thing the user does is drag it.
+        useDroneStore.temporal.getState().pause();
+      },
+
+      selectPart: (id) => {
+        const part = get().parts.find(p => p.id === id);
+        if (part && !get().isCarrying) {
+          set({ activePartId: id });
+        }
+      },
+
+      startCarrying: () => {
+        // Pause history so we don't save 1000 movement steps
+        useDroneStore.temporal.getState().pause();
+        set({ isCarrying: true });
+      },
+
+      stopCarrying: () => {
+        // 1. Resume history tracking
+        useDroneStore.temporal.getState().resume();
+        
+        // 2. Update state. Since history is active, this saves the FINAL position.
+        set({ isCarrying: false });
+      },
+
+      updatePartPosition: (id, pos, rot) => set((state) => ({
+        parts: state.parts.map(p => 
+          p.id === id ? { ...p, position: pos, rotation: rot } : p
+        )
+      })),
+      
+      setPartHeight: (id, height) => set((state) => {
+        const part = state.parts.find(p => p.id === id);
+        if (!part) return {};
+        return {
+          parts: state.parts.map(p => 
+            p.id === id ? { ...p, position: [part.position[0], height, part.position[2]] } : p
+          )
+        };
+      }),
+
+      rotateActivePart: () => {
+        const { activePartId, parts } = get();
+        if (!activePartId) return;
+        const part = parts.find(p => p.id === activePartId);
+        set((state) => ({
+          parts: state.parts.map(p => 
+            p.id === activePartId ? { ...p, rotation: [0, part.rotation[1] + (Math.PI / 4), 0] } : p
+          )
+        }));
+      },
+
+      lockActivePart: () => {
+        // Locking is just a state change, history is already running so it will be saved.
+        set((state) => ({
+          parts: state.parts.map(p => 
+            p.id === state.activePartId ? { ...p, isLocked: true } : p
+          ),
+          activePartId: null,
+          isCarrying: false
+        }));
+      },
+
+      deletePart: (id) => set((state) => ({
+        parts: state.parts.filter(p => p.id !== id),
+        activePartId: null,
+        isCarrying: false
+      })),
+    }),
+    {
+      limit: 20,
+      partialize: (state) => ({ parts: state.parts }),
+    }
+  )
+);
