@@ -8,8 +8,10 @@ export default function BuilderPage() {
   const activePartId = useDroneStore((s) => s.activePartId);
   const isCarrying = useDroneStore((s) => s.isCarrying);
   
-  // NEW: Get the Drag Action
+  // DRAG & SNAP HOOKS
   const setDraggedPartType = useDroneStore((s) => s.setDraggedPartType);
+  const snapEnabled = useDroneStore((s) => s.snapEnabled);
+  const toggleSnap = useDroneStore((s) => s.toggleSnap);
 
   const lockActivePart = useDroneStore((s) => s.lockActivePart);
   const setPartHeight = useDroneStore((s) => s.setPartHeight);
@@ -26,14 +28,13 @@ export default function BuilderPage() {
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-black text-white font-sans relative">
       
-      {/* SIDEBAR INVENTORY */}
+      {/* SIDEBAR */}
       <div className="w-64 bg-gray-900 border-r border-gray-800 flex flex-col z-10 relative shadow-xl">
         <div className="p-4 border-b border-gray-800">
           <h1 className="font-bold text-xl tracking-wider">DRONE LAB <span className="text-blue-500 text-xs align-top">PRO</span></h1>
         </div>
 
         <div className="flex-1 overflow-y-auto p-3 space-y-6">
-          {/* Loop through Categories */}
           {Object.entries(INVENTORY).map(([category, items]) => (
             <div key={category}>
               <h3 className="text-[10px] font-bold text-gray-500 uppercase mb-2 tracking-widest">{category}</h3>
@@ -41,13 +42,8 @@ export default function BuilderPage() {
                 {items.map((item) => (
                   <div 
                     key={item.id}
-                    // 1. MAKE DRAGGABLE
                     draggable={true}
-                    // 2. SET STORE ON DRAG START
-                    onDragStart={(e) => {
-                      setDraggedPartType(item.type);
-                      // Optional: Set a drag image if you want
-                    }}
+                    onDragStart={(e) => setDraggedPartType(item.type)}
                     onDragEnd={() => setDraggedPartType(null)}
                     className="cursor-grab active:cursor-grabbing bg-gray-800 hover:bg-gray-700 p-2 rounded-lg text-xs text-center border border-transparent hover:border-blue-500 transition-all group"
                   >
@@ -68,7 +64,7 @@ export default function BuilderPage() {
         </div>
       </div>
 
-      {/* MAIN 3D AREA */}
+      {/* 3D AREA */}
       <div className="flex-1 relative bg-slate-900">
         <DroneScene />
         
@@ -79,7 +75,22 @@ export default function BuilderPage() {
           </div>
         )}
 
-        {/* CONTROL BAR (Only visible when active) */}
+        {/* BOTTOM LEFT: MAGNET TOGGLE */}
+        <div className="absolute bottom-6 left-6 z-20">
+           <button 
+             onClick={toggleSnap}
+             className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold shadow-lg transition-all border 
+               ${snapEnabled 
+                 ? "bg-blue-600/90 border-blue-400 text-white shadow-blue-500/20" 
+                 : "bg-gray-800/90 border-gray-600 text-gray-400"}
+             `}
+           >
+             <span className="text-xl">{snapEnabled ? "🧲" : "🚫"}</span>
+             {snapEnabled ? "Magnet ON" : "Free Mode"}
+           </button>
+        </div>
+
+        {/* BOTTOM CENTER: CONTROL BAR */}
         {activePartId && (
           <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 z-20 w-[600px] max-w-full">
             <div className="bg-gray-900/90 backdrop-blur-xl border border-gray-700 rounded-2xl p-4 shadow-2xl flex items-center gap-6">
@@ -99,9 +110,6 @@ export default function BuilderPage() {
               <button onClick={lockActivePart} disabled={isCarrying} className={`px-6 py-2 rounded-xl font-bold shadow-lg transition-all flex items-center gap-2 ${isCarrying ? "bg-gray-700 text-gray-500 cursor-not-allowed border border-gray-600" : "bg-green-600 hover:bg-green-500 text-white"}`}>
                 ✓ Lock
               </button>
-            </div>
-            <div className="text-center mt-3 text-xs text-white/50 text-shadow-sm">
-              {isCarrying ? "Right-Click to Drop" : "Part Placed. Lock to finish."}
             </div>
           </div>
         )}

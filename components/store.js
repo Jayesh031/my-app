@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { temporal } from 'zundo';
 
-// 1. EXPORT INVENTORY (This was missing!)
 export const INVENTORY = {
   frames: [
     { id: 'bottom_plate', label: 'Bottom Plate', type: 'bottom_plate' },
@@ -15,31 +14,49 @@ export const INVENTORY = {
   electronics: []
 };
 
-// 2. MAIN STORE
+// --- MAGNET DATABASE ---
+// Coordinates derived from your Coordinate Hunter findings
+export const SNAP_POINTS = {
+  'arm': [
+    // 4 Corners of the Bottom Plate (Mirrored Logic)
+    // Rotation is in Radians (approx 45 degrees)
+    { x: 2.921,  y: 0.172, z: -4.925, rotation: [0, -0.785, 0] }, // Front Right
+    { x: -2.921, y: 0.172, z: -4.925, rotation: [0, 0.785, 0] },  // Front Left
+    { x: 2.921,  y: 0.172, z: 4.925,  rotation: [0, -2.356, 0] }, // Back Right
+    { x: -2.921, y: 0.172, z: 4.925,  rotation: [0, 2.356, 0] },  // Back Left
+  ],
+  'motor': [
+    // Placeholder: You will use the Hunter Tool later to find these on the Arm!
+    // { x: ..., y: ..., z: ... }
+  ]
+};
+
 export const useDroneStore = create(
   temporal(
     (set, get) => ({
       parts: [],
       activePartId: null,
       isCarrying: false,
-      draggedPartType: null, // Track what we are dragging
+      draggedPartType: null, // Tracks drag-and-drop state
+      
+      // MAGNET TOGGLE
+      snapEnabled: true, 
+      toggleSnap: () => set((state) => ({ snapEnabled: !state.snapEnabled })),
 
-      // ACTIONS
       setDraggedPartType: (type) => set({ draggedPartType: type }),
 
-      spawnPart: (partType, position = [0, 0.5, 0]) => { 
+      spawnPart: (partType, position, rotation = [0, 0, 0]) => { 
         const uniqueId = `${partType}_${Date.now()}`;
-        
         set((state) => ({
           parts: [...state.parts, {
             id: uniqueId,
             type: partType,
-            position: position, // Uses the Drop position
-            rotation: [0, 0, 0],
+            position: position, 
+            rotation: rotation, // Auto-rotation from snap
             isLocked: false,
           }],
           activePartId: uniqueId,
-          isCarrying: false // Drop immediately (for drag-and-drop)
+          isCarrying: false // Drop immediately after drag
         }));
       },
 
