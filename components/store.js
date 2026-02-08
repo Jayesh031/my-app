@@ -18,17 +18,19 @@ export const INVENTORY = {
 // Coordinates derived from your Coordinate Hunter findings
 export const SNAP_POINTS = {
   'arm': [
-    // 4 Corners of the Bottom Plate (Mirrored Logic)
-    // Rotation is in Radians (approx 45 degrees)
-    { x: 2.921,  y: 0.172, z: -4.925, rotation: [0, -0.785, 0] }, // Front Right
-    { x: -2.921, y: 0.172, z: -4.925, rotation: [0, 0.785, 0] },  // Front Left
-    { x: 2.921,  y: 0.172, z: 4.925,  rotation: [0, -2.356, 0] }, // Back Right
-    { x: -2.921, y: 0.172, z: 4.925,  rotation: [0, 2.356, 0] },  // Back Left
+    // Top-Right (Original Blender numbers)
+    { x: 45,  y: 0, z: -35, rotation: [0, -0.785, 0] }, 
+
+    // Top-Left (Flip X)
+    { x: -45, y: 0, z: -35, rotation: [0, 0.785, 0] },  
+
+    // Bottom-Right (Flip Z)
+    { x: 45,  y: 0, z: 35,  rotation: [0, -2.356, 0] }, 
+
+    // Bottom-Left (Flip X and Z)
+    { x: -45, y: 0, z: 35,  rotation: [0, 2.356, 0] },  
   ],
-  'motor': [
-    // Placeholder: You will use the Hunter Tool later to find these on the Arm!
-    // { x: ..., y: ..., z: ... }
-  ]
+  'motor': []
 };
 
 export const useDroneStore = create(
